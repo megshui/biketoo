@@ -7,8 +7,19 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 
+SET WORKING DIRECTORY AND LOAD PACKAGES
+
 ```{r}
-plot(cars)
+setwd("N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Models_scripts/biketoo")
+
+library (party)
+library(lattice)
+```
+
+LOAD MODEL DATA
+
+```{r}
+model_data <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/biketoo_master_analysis_table.csv", header=TRUE, sep=",")
 ```
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
