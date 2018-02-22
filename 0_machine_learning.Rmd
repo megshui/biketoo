@@ -3,10 +3,6 @@ title: "Step 1: Machine Learning"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
-
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
-
 SET WORKING DIRECTORY AND LOAD PACKAGES
 
 ```{r}
@@ -20,10 +16,37 @@ LOAD MODEL DATA
 
 ```{r}
 model_data <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/biketoo_master_analysis_table.csv", header=TRUE, sep=",")
+names(model_data)
+all_inj_set <- subset(model_data, select = c(3, 9:102))
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+```{r}
+set.seed(12345)
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+crf<- cforest(all_inj_set$all_bike ~ ., data = all_inj_set,
+control = cforest_unbiased(mtry = 8, ntree = 5))
+```
+
+CALCULATE STANDARD IMPORTANCE
+
+```{r}
+crf.varimp <-varimp(crf,mincriterion=0.95)
+
+crf.varimp1<-sort(crf.varimp,decreasing = F)
+crf.varimp1
+
+write.table(sort(crf.varimp,decreasing = T), file="VarImp_PVST_Int001.txt")
+
+png(file="VarImp_PVST_Int001.png",height = 10, width = 8,units = "in",  res = 500 );
+
+dotplot(crf.varimp1,  main="Variable Importance-SEA   PVST_Int",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
+significant)", cex.main=0.1, cex.xlab=0.5,panel = function(x,y){
+panel.dotplot(x, y, col="darkblue", pch=16, cex=1.0)
+panel.abline(v=abs(min(crf.varimp1)), col="red",lty="longdash", lwd=2)
+panel.abline(v=0, col="blue")
+})
+dev.off()
+```
+
