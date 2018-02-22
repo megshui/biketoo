@@ -41,7 +41,7 @@ write.table(sort(crf.varimp,decreasing = T), file="VarImp_PVST_Int001.txt")
 
 png(file="VarImp_PVST_Int001.png",height = 10, width = 8,units = "in",  res = 500 );
 
-dotplot(crf.varimp1,  main="Variable Importance-SEA   PVST_Int",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
+dotplot(crf.varimp1,  main="Variable Importance-SF PVST_Int",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
 significant)", cex.main=0.1, cex.xlab=0.5,panel = function(x,y){
 panel.dotplot(x, y, col="darkblue", pch=16, cex=1.0)
 panel.abline(v=abs(min(crf.varimp1)), col="red",lty="longdash", lwd=2)
