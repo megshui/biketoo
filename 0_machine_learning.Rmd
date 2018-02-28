@@ -1,25 +1,38 @@
 ---
-title: "Step 1: Machine Learning"
-output: html_notebook
+title: 'Step 1: Machine Learning'
+output:
+  html_document:
+    df_print: paged
 ---
 
 SET WORKING DIRECTORY AND LOAD PACKAGES
 
-```{r echo=TRUE}
+```{r echo=TRUE, message=FALSE, warning=FALSE}
 setwd("N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Models_scripts/biketoo")
 
 library (party)
 library(lattice)
 library(tidyverse)
+library(caret)
+library(ggplot2)
 ```
 
 LOAD MODEL DATA AND SUBSET
 
-```{r echo=TRUE}
-model_data <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/biketoo_master_analysis_table.csv", header=TRUE, sep=",")
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+model_data <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/biketoo_master_analysis_table.csv", header=TRUE, sep=",", na.strings = "")
 update_fac <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/int_sgmt_summarized_new_fac.csv", header=TRUE, sep=",")
 model_data <- left_join(model_data, update_fac, by = "cnn_intrsctn_pkey")
 model_data <- subset(model_data, select = -c(63:65, 103))
+table(model_data$signal_yn)
+model_data$signal_yn <- as.numeric(model_data$signal_yn)
+table(model_data$signal_yn)
+table(model_data$sign_stop_yn)
+model_data$sign_stop_yn <- as.numeric(model_data$sign_stop_yn)
+table(model_data$sign_stop_yn)
+table(model_data$limited_stop_yn)
+model_data$limited_stop_yn <- as.numeric(model_data$limited_stop_yn)
+table(model_data$limited_stop_yn)
 names(model_data)
 all_inj_set <- subset(model_data, select = c(3, 9:102))
 no_bk_vol <- subset(model_data, select = c(3, 9:16, 21:102))
@@ -27,7 +40,7 @@ no_bk_vol <- subset(model_data, select = c(3, 9:16, 21:102))
 
 SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET FOR ALL INJURIES WITH ALL INDEPENDENT VARIABLES
 
-```{r, echo=TRUE}
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(12345)
 
 crf<- cforest(all_inj_set$all_bike ~ ., data = all_inj_set,
@@ -36,7 +49,7 @@ control = cforest_unbiased(mtry = 8, ntree = 5))
 
 SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET FOR ALL INJURIES EXCLUDING BIKE VOLUME FROM INDEPENDENT VARIABLES
 
-```{r echo=TRUE}
+```{r echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(12345)
 
 crf_1<- cforest(no_bk_vol$all_bike ~ ., data = no_bk_vol,
@@ -45,11 +58,10 @@ control = cforest_unbiased(mtry = 8, ntree = 5))
 
 CALCULATE STANDARD IMPORTANCE FOR ALL INDEPENDENT VARIABLES
 
-```{r echo=TRUE}
+```{r echo=TRUE, message=FALSE, warning=FALSE}
 crf.varimp <-varimp(crf,mincriterion=0.95)
 
 crf.varimp1<-sort(crf.varimp,decreasing = F)
-crf.varimp1
 
 write.table(sort(crf.varimp,decreasing = T), file="VarImp_PVST_Int001.txt")
 
@@ -61,16 +73,15 @@ panel.dotplot(x, y, col="darkblue", pch=16, cex=1.0)
 panel.abline(v=abs(min(crf.varimp1)), col="red",lty="longdash", lwd=2)
 panel.abline(v=0, col="blue")
 })
-dev.off()
+
 ```
 
 CALCULATE STANDARD IMPORTANCE FOR INDEPENDENT VARIABLES, EXCLUDING BIKE VOLUME
 
-```{r echo=TRUE}
+```{r echo=TRUE, message=FALSE, warning=FALSE}
 crf_1.varimp <-varimp(crf_1,mincriterion=0.95)
 
 crf.varimp2<-sort(crf_1.varimp,decreasing = F)
-crf.varimp2
 
 write.table(sort(crf_1.varimp,decreasing = T), file="VarImp_PVST_Int002.txt")
 
@@ -82,6 +93,36 @@ panel.dotplot(x, y, col="darkblue", pch=16, cex=1.0)
 panel.abline(v=abs(min(crf.varimp1)), col="red",lty="longdash", lwd=2)
 panel.abline(v=0, col="blue")
 })
-dev.off()
+
 ```
 
+CREATE TEST AND TRAINING SETS
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+inTrain <-createDataPartition(y=all_inj_set$all_bike, p=0.666, list = FALSE)
+training <- all_inj_set[inTrain,]
+testing <- all_inj_set[-inTrain,]
+dim(training); dim(testing)
+```
+
+PERFORM SOME EXPLORATORY ANALYSIS
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+featurePlot(x=training[,c("bik_vol_max", "bik_vol_min", "bik_vol_sum", "bik_vol_maj")],
+            y = training$all_bike,
+            plot = "pairs")
+
+hist(training$bik_vol_max, main= "", xlab = "max leg bike volume" )
+
+write.csv(round(cor(training),2),file="cortmp.csv")
+
+```
+
+QUESTIONS:
+
+* Are there issues with some variables having NA as a value when there is no data versus 0 when there is no data or there is no feature?
+* What does it mean that the variable rankings change with subsequent runs?
+* Should we be doing more expoloratory analysis or preprocessing before running the CRF?
+    * What about variables that have a very skewed distribution?
+* Should we be calculating measures of impurity?
+* Should we be running the CRF in a way that outputs the splits and leaves?
