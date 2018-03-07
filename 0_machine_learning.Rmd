@@ -19,7 +19,7 @@ library(ggplot2)
 
 LOAD MODEL DATA AND SUBSET
 
-```{r echo=TRUE, message=FALSE, warning=FALSE}
+```{r message=FALSE, warning=FALSE, include=FALSE}
 model_data <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/biketoo_master_analysis_table.csv", header=TRUE, sep=",", na.strings = "")
 update_fac <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/int_sgmt_summarized_new_fac.csv", header=TRUE, sep=",")
 model_data <- left_join(model_data, update_fac, by = "cnn_intrsctn_pkey")
@@ -38,7 +38,41 @@ all_inj_set <- subset(model_data, select = c(3, 9:102))
 no_bk_vol <- subset(model_data, select = c(3, 9:16, 21:102))
 ```
 
+EXPLORATORY ANALYSIS
+
+* Almost all variables are skewed towards zero. Should we log transform everything? 
+* Variables for the minor leg have missing values. Is this an issue?
+* 1,912 intersections have less than 3 legs. There is 1 one-legged intersection with an injury and 22 two-legged intersections with injuries. Should these intersections be excluded?
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+all_inj_set$all_bike_log <- log(all_inj_set$all_bike)
+all_inj_set$bik_vol_sum_log <-log(all_inj_set$bik_vol_sum)
+library(Hmisc)
+hist.data.frame(all_inj_set)
+qplot(all_inj_set$bik_vol_sum, all_inj_set$all_bike, data = all_inj_set)
+qplot(all_inj_set$bik_vol_sum_log, all_inj_set$all_bike_log, data = all_inj_set)
+library(expss)
+all_inj_set = apply_labels(all_inj_set,
+                           all_bike = "Sum of Int Bike Injuries",
+                           legs = "Intersection Legs")
+cro(all_inj_set$all_bike, all_inj_set$legs)
+```
+
+EXAMINE CORRELATION COEFFICIENTS FOR VARIABLES TO ALL_BIKE INJURIES
+
+* The highest Pearson CE is .49 for bike_vol_sum. Is this OK?
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+write.csv(round(cor(all_inj_set),2),file="cormat.csv")
+
+```
+
 SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET FOR ALL INJURIES WITH ALL INDEPENDENT VARIABLES
+
+* Should we use a different seed? Would that make results reproducible? They change each time we run it.
+* Should the dashed line be closer to zero?
+* You said that the "party" package does the training and testing in one fell swoop. Should we be checking the results of the training versus the test? E.g. calculating measures of impurity?
 
 ```{r, echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(12345)
@@ -96,33 +130,20 @@ panel.abline(v=0, col="blue")
 
 ```
 
-CREATE TEST AND TRAINING SETS
 
-```{r echo=TRUE, message=FALSE, warning=FALSE}
-inTrain <-createDataPartition(y=all_inj_set$all_bike, p=0.666, list = FALSE)
-training <- all_inj_set[inTrain,]
-testing <- all_inj_set[-inTrain,]
-dim(training); dim(testing)
-```
-
-PERFORM SOME EXPLORATORY ANALYSIS
-
-```{r echo=TRUE, message=FALSE, warning=FALSE}
-featurePlot(x=training[,c("bik_vol_max", "bik_vol_min", "bik_vol_sum", "bik_vol_maj")],
-            y = training$all_bike,
-            plot = "pairs")
-
-hist(training$bik_vol_max, main= "", xlab = "max leg bike volume" )
-
-write.csv(round(cor(training),2),file="cortmp.csv")
-
-```
-
-QUESTIONS:
+SUMMARY OF QUESTIONS:
 
 * Are there issues with some variables having NA as a value when there is no data versus 0 when there is no data or there is no feature?
+* What are the implications of using modeled bike volume that relies on many of the same variables we are using here?
+* We generated major and minor labels, but 21% of intersections have less than 3 legs and 1% have more than 4. Only one street was assigned major, and everything else got minor. For streets that change names in the middle of the intersection, there is going to be misclassification. Is this OK? 
 * What does it mean that the variable rankings change with subsequent runs?
 * Should we be doing more expoloratory analysis or preprocessing before running the CRF?
     * What about variables that have a very skewed distribution?
+    * Should we be log transforming variables?
+    * You said that you combined levels - is this done after CRF?
+* Do we need to change the seed?
+* What does it mean if the dashed line is not at zero?
 * Should we be calculating measures of impurity?
 * Should we be running the CRF in a way that outputs the splits and leaves?
+* Which SPF formulas should we use?
+* R version of SAS Proc Glimmix?
