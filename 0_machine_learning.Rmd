@@ -15,34 +15,88 @@ library(lattice)
 library(tidyverse)
 library(caret)
 library(ggplot2)
+library(Hmisc)
 ```
 
-LOAD MODEL DATA AND SUBSET
+LOAD MODEL DATA, FIX ISSUES, AND SUBSET
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
+# Load data
 model_data <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/biketoo_master_analysis_table.csv", header=TRUE, sep=",", na.strings = "")
+# Change ordering of facility class
 update_fac <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/int_sgmt_summarized_new_fac.csv", header=TRUE, sep=",")
 model_data <- left_join(model_data, update_fac, by = "cnn_intrsctn_pkey")
 model_data <- subset(model_data, select = -c(63:65, 103))
+model_data <- subset(model_data, !(model_data$legs < 3))
+# Add other missing variables (% male, % 25-34, %<200pov)
+new_demo <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/int_sum_demo_tenthmi.csv", header=TRUE, sep=",")
+names(new_demo)
+new_demo$male_pct <- new_demo$Sum_male/new_demo$Sum_total
+new_demo$pov_pct <- new_demo$Sum_lt200p/new_demo$Sum_bg_pov
+new_demo$ya_pct <- new_demo$Sum_a25to3/new_demo$Sum_bg_age
+new_demo[is.na(new_demo)] <- 0
+new_demo <-subset(new_demo, select = -c(2:8))
+summary(new_demo)
+model_data <- left_join(model_data, new_demo, by = "cnn_intrsctn_pkey")
+# Add other missing variables (% white and % poc)
+oth_demo <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/int_sum_eth_tenthmi.csv", header=TRUE, sep=",")
+names(oth_demo)
+oth_demo$poc_pct <- oth_demo$Sum_bg_e_1/oth_demo$Sum_bg_eth
+oth_demo$wht_pct <- oth_demo$Sum_bg_e_2/oth_demo$Sum_bg_eth
+oth_demo[is.na(oth_demo)] <- 0
+summary(oth_demo)
+oth_demo <-subset(oth_demo, select = -c(2:5))
+model_data <- left_join(model_data, oth_demo, by = "cnn_intrsctn_pkey")
+# Add other missing variables (speed, one way)
+inf_int <- read.csv(file="N:/GISdata/_GIS_Projects/BIKES TOO 2016/GIS/Project_data/Final/vw_geo_intrsctn_infrstcr.csv", header=TRUE, sep=",")
+inf_int <-subset(inf_int, select = c(3, 41, 55:57))
+table(inf_int$all_two_wa)
+inf_int[, 3:5] <-sapply(inf_int[, 3:5], as.numeric)
+model_data <- left_join(model_data, inf_int, by = "cnn_intrsctn_pkey")
+# Make stop control variables numeric and remove missing
 table(model_data$signal_yn)
 model_data$signal_yn <- as.numeric(model_data$signal_yn)
+model_data$signal_yn[model_data$signal_yn == 1] <- 0
+model_data$signal_yn[model_data$signal_yn == 2] <- 1
 table(model_data$signal_yn)
+model_data$sign_stop_yn[is.na(model_data$sign_stop_yn)]<- "NO"
 table(model_data$sign_stop_yn)
 model_data$sign_stop_yn <- as.numeric(model_data$sign_stop_yn)
+model_data$sign_stop_yn[model_data$sign_stop_yn == 1] <- 0
+model_data$sign_stop_yn[model_data$sign_stop_yn == 2] <- 1
 table(model_data$sign_stop_yn)
+model_data$limited_stop_yn[is.na(model_data$limited_stop_yn)]<- "NO"
 table(model_data$limited_stop_yn)
 model_data$limited_stop_yn <- as.numeric(model_data$limited_stop_yn)
+model_data$limited_stop_yn[model_data$limited_stop_yn == 1] <- 0
+model_data$limited_stop_yn[model_data$limited_stop_yn == 2] <- 1
 table(model_data$limited_stop_yn)
+table(model_data$bike_net_min)
+# Create additional categorical variables
+model_data$legs_cat[model_data$legs == 3] <- 3
+model_data$legs_cat[model_data$legs == 4] <- 4
+model_data$legs_cat[model_data$legs >=5] <- 5
+model_data$on_park_bin[model_data$pk_on_sum > 0] <- 1
+model_data$on_park_bin[model_data$pk_on_sum == 0] <- 0
+# Creat subsets that exclude other injury groups and removed bike volume variables
 names(model_data)
-all_inj_set <- subset(model_data, select = c(3, 9:102))
-no_bk_vol <- subset(model_data, select = c(3, 9:16, 21:102))
+all_inj_set <- subset(model_data, select = c(3, 9:113))
+no_bk_vol <- subset(model_data, select = c(3, 9:16, 21:113))
+no_maj_min <- select(all_inj_set, -contains("min"), -contains("maj"))
+no_mm_no_bk <- select(no_bk_vol, -contains("min"), -contains("maj"))
+# Export csv to investigate intersections that have no minor streets
+write.csv(model_data,file="issues.csv")
+write.csv(summary(all_inj_set), file="missing.csv")
+factors <- c(c(2,50:52),c(59:102,108:113))
+model_data[factors] <- lapply(model_data[factors], factor)
+sapply(model_data, class)
+lapply(model_data, function(x) {
+    if (is.numeric(x)) return(summary(x))
+    if (is.factor(x)) return(table(x))
+})
 ```
 
 EXPLORATORY ANALYSIS
-
-* Almost all variables are skewed towards zero. Should we log transform everything? 
-* Variables for the minor leg have missing values. Is this an issue?
-* 1,912 intersections have less than 3 legs. There is 1 one-legged intersection with an injury and 22 two-legged intersections with injuries. Should these intersections be excluded?
 
 ```{r, echo=TRUE, message=FALSE, warning=FALSE}
 all_inj_set$all_bike_log <- log(all_inj_set$all_bike)
@@ -51,6 +105,7 @@ library(Hmisc)
 hist.data.frame(all_inj_set)
 qplot(all_inj_set$bik_vol_sum, all_inj_set$all_bike, data = all_inj_set)
 qplot(all_inj_set$bik_vol_sum_log, all_inj_set$all_bike_log, data = all_inj_set)
+all_inj_set<-subset(all_inj_set, select = -c(107:108))
 library(expss)
 all_inj_set = apply_labels(all_inj_set,
                            all_bike = "Sum of Int Bike Injuries",
@@ -60,25 +115,19 @@ cro(all_inj_set$all_bike, all_inj_set$legs)
 
 EXAMINE CORRELATION COEFFICIENTS FOR VARIABLES TO ALL_BIKE INJURIES
 
-* The highest Pearson CE is .49 for bike_vol_sum. Is this OK?
-
 ```{r echo=TRUE, message=FALSE, warning=FALSE}
 
-write.csv(round(cor(all_inj_set),2),file="cormat.csv")
+write.csv(round(cor(no_maj_min, method = "spearman"),2),file="cormat.csv")
 
 ```
 
 SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET FOR ALL INJURIES WITH ALL INDEPENDENT VARIABLES
 
-* Should we use a different seed? Would that make results reproducible? They change each time we run it.
-* Should the dashed line be closer to zero?
-* You said that the "party" package does the training and testing in one fell swoop. Should we be checking the results of the training versus the test? E.g. calculating measures of impurity?
-
 ```{r, echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(12345)
 
 crf<- cforest(all_inj_set$all_bike ~ ., data = all_inj_set,
-control = cforest_unbiased(mtry = 8, ntree = 5))
+control = cforest_unbiased(mtry = 32, ntree = 1,500))
 ```
 
 SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET FOR ALL INJURIES EXCLUDING BIKE VOLUME FROM INDEPENDENT VARIABLES
@@ -87,7 +136,25 @@ SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET FOR ALL INJURIES EXCLUDING BIK
 set.seed(12345)
 
 crf_1<- cforest(no_bk_vol$all_bike ~ ., data = no_bk_vol,
-control = cforest_unbiased(mtry = 8, ntree = 5))
+control = cforest_unbiased(mtry = 30, ntree = 1,500))
+```
+
+SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET FOR ALL INJURIES EXCLUDING MAJOR/MINOR INDEPENDENT VARIABLES
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+set.seed(12345)
+
+crf_2<- cforest(no_maj_min$all_bike ~ ., data = no_maj_min,
+control = cforest_unbiased(mtry = 30, ntree = 1,500))
+```
+
+SET SEED AND CREATE CONDITIONAL RANDOM FOREST SET FOR ALL INJURIES EXCLUDING MAJOR/MINOR & BIKE VOLUME INDEPENDENT VARIABLES
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+set.seed(12345)
+
+crf_3<- cforest(no_mm_no_bk$all_bike ~ ., data = no_mm_no_bk,
+control = cforest_unbiased(mtry = 30, ntree = 1,500))
 ```
 
 CALCULATE STANDARD IMPORTANCE FOR ALL INDEPENDENT VARIABLES
@@ -97,11 +164,11 @@ crf.varimp <-varimp(crf,mincriterion=0.95)
 
 crf.varimp1<-sort(crf.varimp,decreasing = F)
 
-write.table(sort(crf.varimp,decreasing = T), file="VarImp_PVST_Int001.txt")
+write.table(sort(crf.varimp,decreasing = T), file="VarImp_ALL_Int001.txt")
 
-png(file="VarImp_PVST_Int001.png",height = 10, width = 8,units = "in",  res = 500 );
+png(file="VarImp_ALL_Int001.png",height = 10, width = 8,units = "in",  res = 500 );
 
-dotplot(crf.varimp1,  main="Variable Importance-San Francisco PVST_Int",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
+dotplot(crf.varimp1,  main="Variable Importance - San Francisco Int - All Var",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
 significant)", cex.main=0.1, cex.xlab=0.5,panel = function(x,y){
 panel.dotplot(x, y, col="darkblue", pch=16, cex=1.0)
 panel.abline(v=abs(min(crf.varimp1)), col="red",lty="longdash", lwd=2)
@@ -117,11 +184,51 @@ crf_1.varimp <-varimp(crf_1,mincriterion=0.95)
 
 crf.varimp2<-sort(crf_1.varimp,decreasing = F)
 
-write.table(sort(crf_1.varimp,decreasing = T), file="VarImp_PVST_Int002.txt")
+write.table(sort(crf_1.varimp,decreasing = T), file="VarImp_NOBK_Int002.txt")
 
-png(file="VarImp_PVST_Int002.png",height = 10, width = 8,units = "in",  res = 500 );
+png(file="VarImp_NOBK_Int002.png",height = 10, width = 8,units = "in",  res = 500 );
 
-dotplot(crf.varimp2,  main="Variable Importance-San Francisco PVST_Int - No Bike Vol",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
+dotplot(crf.varimp2,  main="Variable Importance - San Francisco Int - No Bike Vol Var",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
+significant)", cex.main=0.1, cex.xlab=0.5,panel = function(x,y){
+panel.dotplot(x, y, col="darkblue", pch=16, cex=1.0)
+panel.abline(v=abs(min(crf.varimp1)), col="red",lty="longdash", lwd=2)
+panel.abline(v=0, col="blue")
+})
+
+```
+
+CALCULATE STANDARD IMPORTANCE FOR INDEPENDENT VARIABLES, EXCLUDING MAJOR/MINOR VARIABLES
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+crf_2.varimp <-varimp(crf_2,mincriterion=0.95)
+
+crf.varimp3<-sort(crf_2.varimp,decreasing = F)
+
+write.table(sort(crf_2.varimp,decreasing = T), file="VarImp_NOMM_Int003.txt")
+
+png(file="VarImp_NOMM_Int003.png",height = 10, width = 8,units = "in",  res = 500 );
+
+dotplot(crf.varimp3,  main="Variable Importance - San Francisco Int - No Maj/Min Var",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
+significant)", cex.main=0.1, cex.xlab=0.5,panel = function(x,y){
+panel.dotplot(x, y, col="darkblue", pch=16, cex=1.0)
+panel.abline(v=abs(min(crf.varimp1)), col="red",lty="longdash", lwd=2)
+panel.abline(v=0, col="blue")
+})
+
+```
+
+CALCULATE STANDARD IMPORTANCE FOR INDEPENDENT VARIABLES, EXCLUDING MAJOR/MINOR & BIKE VOLUME VARIABLES
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+crf_3.varimp <-varimp(crf_3,mincriterion=0.95)
+
+crf.varimp4<-sort(crf_3.varimp,decreasing = F)
+
+write.table(sort(crf_3.varimp,decreasing = T), file="VarImp_NOMM_NOBK_Int004.txt")
+
+png(file="VarImp_NOMM_NOBK_Int004.png",height = 10, width = 8,units = "in",  res = 500 );
+
+dotplot(crf.varimp4,  main="Variable Importance - San Francisco Int - No Maj/Min & No Bk Var",xlab="Variable Importance by cforest (predictors to right of dashed vertical line are
 significant)", cex.main=0.1, cex.xlab=0.5,panel = function(x,y){
 panel.dotplot(x, y, col="darkblue", pch=16, cex=1.0)
 panel.abline(v=abs(min(crf.varimp1)), col="red",lty="longdash", lwd=2)
